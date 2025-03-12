@@ -16,8 +16,14 @@ def check(host, attempts=3, timeout=5, delay=1):
         bool: True if host is reachable, False otherwise
     """
     # Adjust ping command based on platform
-    param = '-n' if platform.system().lower() == 'windows' else '-c'
-    command = ['ping', param, '1', host]
+    system = platform.system().lower()
+    
+    if system == 'windows':
+        # Windows: -n for count, -a for no DNS resolution
+        command = ['ping', '-n', '1', '-a', host]
+    else:
+        # Unix/Linux/macOS: -c for count, -n for numeric output only (no DNS resolution)
+        command = ['ping', '-c', '1', '-n', host]
     
     # Try multiple times
     for attempt in range(attempts):
