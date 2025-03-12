@@ -156,13 +156,15 @@ def check_systems(config, single_shot=False, verbose=False):
             system_states[system]['status'] = status
             system_states[system]['last_change'] = current_time
             
-            # If system went down, send alert
+            # If system went down or came back up, send alert
             if not status:
                 message = f"System {system} is DOWN. Check type: {check_type}"
                 send_alert(system, alert_type, host, message)
                 print(f"[{timestamp}] ALERT: {system} ({host}) is DOWN")
                 all_systems_up = False
             else:
+                message = f"System {system} has RECOVERED. Check type: {check_type}"
+                send_alert(system, alert_type, host, message)
                 print(f"[{timestamp}] RECOVERED: {system} ({host}) is back UP")
         elif verbose:
             # In verbose mode, show status even if unchanged
