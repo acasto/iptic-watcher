@@ -10,6 +10,8 @@ import time
 import sys
 import os
 import argparse
+import logging
+import logging.handlers
 from datetime import datetime
 
 # Default values
@@ -22,6 +24,51 @@ system_states = {}  # Format: {system_name: {'status': bool, 'last_change': time
 # State persistence file for single-shot mode
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.watcher_state')
 
+# Logger setup
+logger = logging.getLogger('iptic-watcher')
+
+def setup_logging(config=None):
+    """Setup logging based on configuration if provided."""
+    # Default settings
+    log_level = logging.INFO
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    log_file = None
+    
+    # If config exists, get values from it
+    if config and 'logging' in config:
+        # Get log level
+        level_str = config['logging'].get('level', 'INFO').upper()
+        log_level = getattr(logging, level_str, logging.INFO)
+        
+        # Get log format
+        log_format = config['logging'].get('format', log_format)
+        
+        # Get log file
+        log_file = config['logging'].get('file', None)
+
+    # Configure root logger
+    logging.basicConfig(
+        level=log_level,
+        format=log_format,
+        handlers=[logging.StreamHandler()]
+    )
+    
+    # Add file handler if configured
+    if log_file:
+        # Create directories if needed
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+            
+        # Add rotating file handler
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file, maxBytes=10*1024*1024, backupCount=5
+        )
+        file_handler.setFormatter(logging.Formatter(log_format))
+        logging.getLogger().addHandler(file_handler)
+    
+    return logging.getLogger('iptic-watcher')
+
 def load_config():
     """Load configuration from the config file."""
     config = configparser.ConfigParser()
@@ -29,7 +76,7 @@ def load_config():
         config.read(CONFIG_FILE)
         return config
     except Exception as e:
-        print(f"Error loading configuration: {e}")
+        logger.error(f"Error loading configuration: {e}")
         sys.exit(1)
 
 def perform_check(system, check_type, host):
@@ -47,13 +94,14 @@ def perform_check(system, check_type, host):
     try:
         # Dynamically import check module
         check_module = importlib.import_module(f"checkers.{check_type}")
+        logger.debug(f"Performing {check_type} check on {host} for system {system}")
         result = check_module.check(host)
         return result
     except (ImportError, AttributeError) as e:
-        print(f"Error: Check type '{check_type}' not supported or module not found: {e}")
+        logger.error(f"Error: Check type '{check_type}' not supported or module not found: {e}")
         return None
     except Exception as e:
-        print(f"Error performing {check_type} check on {host}: {e}")
+        logger.error(f"Error performing {check_type} check on {host}: {e}")
         return None
 
 def send_alert(system, alert_type, host, message):
@@ -69,11 +117,12 @@ def send_alert(system, alert_type, host, message):
     try:
         # Dynamically import alert module
         alert_module = importlib.import_module(f"alerts.{alert_type}")
+        logger.info(f"Sending {alert_type} alert for {system} ({host})")
         alert_module.send_alert(system, host, message)
     except (ImportError, AttributeError) as e:
-        print(f"Error: Alert type '{alert_type}' not supported or module not found: {e}")
+        logger.error(f"Error: Alert type '{alert_type}' not supported or module not found: {e}")
     except Exception as e:
-        print(f"Error sending {alert_type} alert for {system}: {e}")
+        logger.error(f"Error sending {alert_type} alert for {system}: {e}")
 
 def save_state():
     """Save the current state to a file for persistence between single-shot runs."""
@@ -81,12 +130,14 @@ def save_state():
         with open(STATE_FILE, 'w') as f:
             for system, state in system_states.items():
                 f.write(f"{system}:{state['status']}:{state['last_change']}\n")
+        logger.debug(f"Saved state for {len(system_states)} systems")
     except Exception as e:
-        print(f"Error saving state: {e}")
+        logger.error(f"Error saving state: {e}")
 
 def load_state():
     """Load the previous state from file."""
     if not os.path.exists(STATE_FILE):
+        logger.debug("No state file found, starting fresh")
         return {}
         
     states = {}
@@ -100,9 +151,10 @@ def load_state():
                         'status': status.lower() == 'true',
                         'last_change': float(last_change)
                     }
+        logger.debug(f"Loaded state for {len(states)} systems")
         return states
     except Exception as e:
-        print(f"Error loading state: {e}")
+        logger.error(f"Error loading state: {e}")
         return {}
 
 def check_systems(config, single_shot=False, verbose=False):
@@ -117,17 +169,22 @@ def check_systems(config, single_shot=False, verbose=False):
         True if all systems are up, False otherwise
     """
     current_time = time.time()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     all_systems_up = True
     
+    logger.debug(f"Starting system checks, monitoring {len(config.sections())} systems")
+    
     for system in config.sections():
+        # Skip the logging section if present
+        if system == 'logging':
+            continue
+            
         # Get configuration for this system
         host = config[system].get('host')
         check_type = config[system].get('check')
         alert_type = config[system].get('alert')
         
         if not host or not check_type or not alert_type:
-            print(f"[{timestamp}] Error: Missing configuration for {system}")
+            logger.error(f"Missing configuration for {system}")
             continue
         
         # Perform the check
@@ -141,8 +198,10 @@ def check_systems(config, single_shot=False, verbose=False):
         # Initialize state if not already present
         if system not in system_states:
             system_states[system] = {'status': status, 'last_change': current_time}
-            if verbose or not status:
-                print(f"[{timestamp}] Initial status for {system} ({host}): {'UP' if status else 'DOWN'}")
+            if verbose:
+                logger.info(f"Initial status for {system} ({host}): {'UP' if status else 'DOWN'}")
+            elif not status:
+                logger.warning(f"Initial status for {system} ({host}): DOWN")
             
             # Send alert on initial down state
             if not status:
@@ -160,21 +219,17 @@ def check_systems(config, single_shot=False, verbose=False):
             if not status:
                 message = f"System {system} is DOWN. Check type: {check_type}"
                 send_alert(system, alert_type, host, message)
-                print(f"[{timestamp}] ALERT: {system} ({host}) is DOWN")
+                logger.warning(f"ALERT: {system} ({host}) is DOWN")
                 all_systems_up = False
             else:
                 message = f"System {system} has RECOVERED. Check type: {check_type}"
                 send_alert(system, alert_type, host, message)
-                print(f"[{timestamp}] RECOVERED: {system} ({host}) is back UP")
+                logger.info(f"RECOVERED: {system} ({host}) is back UP")
         elif verbose:
             # In verbose mode, show status even if unchanged
-            print(f"[{timestamp}] {system} ({host}) status: {'UP' if status else 'DOWN'}")
+            logger.debug(f"{system} ({host}) status: {'UP' if status else 'DOWN'}")
         
         # Update state for unchanged status
-        if status != prev_status:
-            system_states[system]['status'] = status
-        
-        # Track overall status
         if not status:
             all_systems_up = False
     
@@ -192,6 +247,8 @@ def main():
                         help=f'Configuration file path (default: {CONFIG_FILE})')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Show detailed output for all checks')
+    parser.add_argument('--log-level', '-l', type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        help='Set logging level (overrides config file)')
     args = parser.parse_args()
     
     # Override config file if specified
@@ -199,8 +256,21 @@ def main():
     
     config = load_config()
     
+    # Setup logging
+    global logger
+    logger = setup_logging(config)
+    
+    # Override log level if specified in command line
+    if args.log_level:
+        log_level = getattr(logging, args.log_level)
+        logger.setLevel(log_level)
+        # Also set for root logger
+        logging.getLogger().setLevel(log_level)
+        logger.debug(f"Log level set to {args.log_level} from command line")
+    
     # For single-shot mode, load previous state
     if args.single_shot:
+        logger.debug("Running in single-shot mode")
         saved_state = load_state()
         system_states.update(saved_state)
         
@@ -211,18 +281,33 @@ def main():
         save_state()
         
         # Exit with status code (useful for cron/scripts)
+        logger.debug(f"Single-shot run complete. Status: {'All UP' if all_up else 'Some systems DOWN'}")
         sys.exit(0 if all_up else 1)
     
     # Normal continuous mode
-    print(f"Starting IPTIC Watcher... Monitoring {len(config.sections())} systems")
+    num_systems = sum(1 for s in config.sections() if s != 'logging')
+    logger.info(f"Starting IPTIC Watcher... Monitoring {num_systems} systems")
     
-    while True:
-        check_systems(config, verbose=args.verbose)
-        time.sleep(CHECK_INTERVAL)
+    try:
+        while True:
+            check_systems(config, verbose=args.verbose)
+            logger.debug(f"Sleeping for {CHECK_INTERVAL} seconds")
+            time.sleep(CHECK_INTERVAL)
+    except KeyboardInterrupt:
+        logger.info("Watcher stopped by user")
+    except Exception as e:
+        logger.critical(f"Unexpected error: {e}", exc_info=True)
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\nExiting IPTIC Watcher...")
+        # Already handled in main()
         sys.exit(0)
+    except Exception as e:
+        # In case exceptions escape main()
+        if 'logger' in globals() and logger:
+            logger.critical(f"Fatal error: {e}", exc_info=True)
+        else:
+            print(f"Fatal error: {e}")
+        sys.exit(1)
