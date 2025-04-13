@@ -8,6 +8,7 @@ A lightweight, modular system monitoring tool that checks your servers and sends
 - Modular design for easy extension
 - Currently supports ping and HTTP checks
 - Email alerts via system mailer
+- HTML status page generation
 - Simple configuration via INI format
 
 ## Installation
@@ -46,12 +47,24 @@ Or more concisely:
 - `--single-shot`, `-s`: Run once and exit (good for cron usage)
 - `--config`, `-c`: Specify an alternative config file
 - `--verbose`, `-v`: Show detailed output for all checks
+- `--log-level`, `-l`: Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- `--status-page`: Enable HTML status page generation
+- `--status-file`: Path to the HTML status page file (default: ./status.html)
 
 ## Configuration
 
 Configuration is done via the `config.ini` file:
 
 ```ini
+[logging]
+level = INFO
+file = logs/watcher.log
+format = %(asctime)s - %(name)s - %(levelname)s - %(message)s
+
+[status_page]
+enabled = false
+file = ./status.html
+
 [systemname]
 check = ping
 host = example.com
@@ -71,6 +84,7 @@ alert = email
 ### Available Alert Types
 
 - `email`: System mail command
+- `status_page`: HTML status page
 
 ## Extending
 

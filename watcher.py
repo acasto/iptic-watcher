@@ -157,13 +157,14 @@ def load_state():
         logger.error(f"Error loading state: {e}")
         return {}
 
-def check_systems(config, single_shot=False, verbose=False):
+def check_systems(config, single_shot=False, verbose=False, update_status_page=False):
     """Check all systems and send alerts if needed.
     
     Args:
         config: ConfigParser object with system configurations
         single_shot: If True, run once and exit
         verbose: If True, print more detailed output
+        update_status_page: If True, update status page regardless of status change
         
     Returns:
         True if all systems are up, False otherwise
@@ -208,6 +209,14 @@ def check_systems(config, single_shot=False, verbose=False):
                 message = f"System {system} is DOWN. Check type: {check_type}"
                 send_alert(system, alert_type, host, message)
                 all_systems_up = False
+            # Update status page if enabled
+            elif update_status_page:
+                message = f"System {system} is UP. Check type: {check_type}"
+                try:
+                    if 'IPTIC_STATUS_PAGE' in os.environ:
+                        send_alert(system, 'status_page', host, message)
+                except Exception as e:
+                    logger.error(f"Error updating status page for {system}: {e}")
             continue
             
         # Status changed
@@ -219,11 +228,23 @@ def check_systems(config, single_shot=False, verbose=False):
             if not status:
                 message = f"System {system} is DOWN. Check type: {check_type}"
                 send_alert(system, alert_type, host, message)
+                # Also update status page if enabled
+                try:
+                    if 'IPTIC_STATUS_PAGE' in os.environ:
+                        send_alert(system, 'status_page', host, message)
+                except Exception as e:
+                    logger.error(f"Error updating status page for {system}: {e}")
                 logger.warning(f"ALERT: {system} ({host}) is DOWN")
                 all_systems_up = False
             else:
                 message = f"System {system} has RECOVERED. Check type: {check_type}"
                 send_alert(system, alert_type, host, message)
+                # Also update status page if enabled
+                try:
+                    if 'IPTIC_STATUS_PAGE' in os.environ:
+                        send_alert(system, 'status_page', host, message)
+                except Exception as e:
+                    logger.error(f"Error updating status page for {system}: {e}")
                 logger.info(f"RECOVERED: {system} ({host}) is back UP")
         elif verbose:
             # In verbose mode, show status even if unchanged
@@ -232,6 +253,14 @@ def check_systems(config, single_shot=False, verbose=False):
         # Update state for unchanged status
         if not status:
             all_systems_up = False
+        
+        # Always update status page for this system if enabled, even if status didn't change
+        elif update_status_page and 'IPTIC_STATUS_PAGE' in os.environ:
+            message = f"System {system} is UP. Check type: {check_type}"
+            try:
+                send_alert(system, 'status_page', host, message)
+            except Exception as e:
+                logger.error(f"Error updating status page for {system}: {e}")
     
     return all_systems_up
 
@@ -249,6 +278,10 @@ def main():
                         help='Show detailed output for all checks')
     parser.add_argument('--log-level', '-l', type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         help='Set logging level (overrides config file)')
+    parser.add_argument('--status-page', action='store_true',
+                        help='Enable HTML status page generation')
+    parser.add_argument('--status-file', type=str,
+                        help='Path to the HTML status page file (default: ./status.html)')
     args = parser.parse_args()
     
     # Override config file if specified
@@ -267,6 +300,24 @@ def main():
         # Also set for root logger
         logging.getLogger().setLevel(log_level)
         logger.debug(f"Log level set to {args.log_level} from command line")
+        
+    # Set status page environment variable if specified from CLI or config
+    status_page_enabled = args.status_page
+    status_page_file = args.status_file
+    
+    # Check config for status page settings if not specified in CLI
+    if not status_page_enabled and not status_page_file and 'status_page' in config:
+        status_page_enabled = config['status_page'].getboolean('enabled', fallback=False)
+        if status_page_enabled and not status_page_file:
+            status_page_file = config['status_page'].get('file', './status.html')
+    
+    if status_page_enabled or status_page_file:
+        if status_page_file:
+            os.environ['IPTIC_STATUS_PAGE'] = status_page_file
+            logger.debug(f"Status page will be generated at {status_page_file}")
+        else:
+            os.environ['IPTIC_STATUS_PAGE'] = './status.html'
+            logger.debug("Status page will be generated at ./status.html")
     
     # For single-shot mode, load previous state
     if args.single_shot:
@@ -275,7 +326,8 @@ def main():
         system_states.update(saved_state)
         
         # Run checks once
-        all_up = check_systems(config, single_shot=True, verbose=args.verbose)
+        all_up = check_systems(config, single_shot=True, verbose=args.verbose, 
+                           update_status_page=('IPTIC_STATUS_PAGE' in os.environ))
         
         # Save state for next run
         save_state()
@@ -289,8 +341,13 @@ def main():
     logger.info(f"Starting IPTIC Watcher... Monitoring {num_systems} systems")
     
     try:
+        # If status page is enabled, do a full update on first run
+        update_status_page = 'IPTIC_STATUS_PAGE' in os.environ
+        
         while True:
-            check_systems(config, verbose=args.verbose)
+            check_systems(config, verbose=args.verbose, update_status_page=update_status_page)
+            # After first run, only update status page when status changes
+            update_status_page = False
             logger.debug(f"Sleeping for {CHECK_INTERVAL} seconds")
             time.sleep(CHECK_INTERVAL)
     except KeyboardInterrupt:
