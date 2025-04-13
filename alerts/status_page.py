@@ -24,7 +24,7 @@ def send_alert(system, host, message):
         status = "DOWN"
         status_class = "down"
         logger.debug(f"Recording DOWN status for {system} ({host})")
-    elif "RECOVERED" in message:
+    elif "RECOVERED" in message or "UP" in message:
         status = "UP"
         status_class = "up"
         logger.debug(f"Recording UP status for {system} ({host})")

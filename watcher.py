@@ -175,8 +175,8 @@ def check_systems(config, single_shot=False, verbose=False, update_status_page=F
     logger.debug(f"Starting system checks, monitoring {len(config.sections())} systems")
     
     for system in config.sections():
-        # Skip the logging section if present
-        if system == 'logging':
+        # Skip non-system sections
+        if system in ['logging', 'status_page']:
             continue
             
         # Get configuration for this system
