@@ -218,8 +218,14 @@ def check_systems(config, single_shot=False, verbose=False, update_status_page=F
             if not status:
                 message = f"System {system} is DOWN. Check type: {check_type}"
                 send_alert(system, alert_type, host, message)
+                # Update status page for initial down status
+                try:
+                    if 'IPTIC_STATUS_PAGE' in os.environ:
+                        send_alert(system, 'status_page', host, message)
+                except Exception as e:
+                    logger.error(f"Error updating status page for {system}: {e}")
                 all_systems_up = False
-            # Update status page if enabled
+            # Update status page if enabled for initial up state
             elif update_status_page:
                 message = f"System {system} is UP. Check type: {check_type}"
                 try:
