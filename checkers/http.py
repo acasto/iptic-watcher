@@ -24,6 +24,9 @@ def check(url, attempts=3, timeout=5, delay=1, content_check=None, acceptable_co
     if not url.startswith('http://') and not url.startswith('https://'):
         url = f'http://{url}'
         logger.debug(f"Added http:// prefix to URL: {url}")
+        
+    if content_check:
+        logger.debug(f"Content check enabled, looking for: {content_check[:30]}...")
     
     # Set default acceptable codes if none provided
     if acceptable_codes is None:

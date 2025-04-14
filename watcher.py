@@ -79,7 +79,7 @@ def load_config():
         logger.error(f"Error loading configuration: {e}")
         sys.exit(1)
 
-def perform_check(system, check_type, host):
+def perform_check(system, check_type, host, **kwargs):
     """
     Dynamically load and execute the appropriate check module.
     
@@ -95,7 +95,11 @@ def perform_check(system, check_type, host):
         # Dynamically import check module
         check_module = importlib.import_module(f"checkers.{check_type}")
         logger.debug(f"Performing {check_type} check on {host} for system {system}")
-        result = check_module.check(host)
+        
+        # Pass additional parameters if provided
+        # Using kwargs from function parameters
+            
+        result = check_module.check(host, **kwargs)
         return result
     except (ImportError, AttributeError) as e:
         logger.error(f"Error: Check type '{check_type}' not supported or module not found: {e}")
@@ -188,8 +192,14 @@ def check_systems(config, single_shot=False, verbose=False, update_status_page=F
             logger.error(f"Missing configuration for {system}")
             continue
         
+        # Get content check if configured
+        content_check = config[system].get('content')
+        
         # Perform the check
-        status = perform_check(system, check_type, host)
+        if content_check and check_type == 'http':
+            status = perform_check(system, check_type, host, content_check=content_check)
+        else:
+            status = perform_check(system, check_type, host)
         
         if status is None:
             continue  # Check failed to execute
