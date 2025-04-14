@@ -57,6 +57,11 @@ def check(url, attempts=3, timeout=5, delay=1, content_check=None, acceptable_co
                 
             # If content check is specified, check for the string
             if content_check:
+                # Strip quotes from the content check if present
+                if (content_check.startswith('"') and content_check.endswith('"')) or \
+                   (content_check.startswith("'") and content_check.endswith("'")):
+                    content_check = content_check[1:-1]
+                    
                 content = response.read().decode('utf-8', errors='ignore')
                 if content_check not in content:
                     logger.debug(f"Content check failed for {url}")
