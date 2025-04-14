@@ -334,6 +334,16 @@ def main():
         else:
             os.environ['IPTIC_STATUS_PAGE'] = './status.html'
             logger.debug("Status page will be generated at ./status.html")
+        
+        # Initialize the status page on startup
+        try:
+            from alerts.status_page import initialize_status_page
+            if initialize_status_page():
+                logger.info("Status page initialized successfully")
+            else:
+                logger.warning("Failed to initialize status page")
+        except Exception as e:
+            logger.error(f"Error initializing status page: {e}")
     
     # For single-shot mode, load previous state
     if args.single_shot:
