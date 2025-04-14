@@ -108,7 +108,7 @@ def perform_check(system, check_type, host, **kwargs):
         logger.error(f"Error performing {check_type} check on {host}: {e}")
         return None
 
-def send_alert(system, alert_type, host, message):
+def send_alert(system, alert_type, host, message, down_timestamp=None):
     """
     Dynamically load and execute the appropriate alert module.
     
@@ -117,12 +117,18 @@ def send_alert(system, alert_type, host, message):
         alert_type (str): Type of alert to send (email, sms, etc.)
         host (str): Host that was checked
         message (str): Alert message to send
+        down_timestamp (float, optional): Timestamp when system went down, for recovery alerts
     """
     try:
         # Dynamically import alert module
         alert_module = importlib.import_module(f"alerts.{alert_type}")
         logger.info(f"Sending {alert_type} alert for {system} ({host})")
-        alert_module.send_alert(system, host, message)
+        
+        # Check if the alert module supports down_timestamp parameter
+        if "RECOVERED" in message and down_timestamp is not None and alert_type == 'email':
+            alert_module.send_alert(system, host, message, down_timestamp=down_timestamp)
+        else:
+            alert_module.send_alert(system, host, message)
     except (ImportError, AttributeError) as e:
         logger.error(f"Error: Alert type '{alert_type}' not supported or module not found: {e}")
     except Exception as e:
@@ -237,6 +243,10 @@ def check_systems(config, single_shot=False, verbose=False, update_status_page=F
             
         # Status changed
         if status != prev_status:
+            # Store the previous last_change timestamp before updating it
+            prev_timestamp = system_states[system]['last_change']
+            
+            # Update system state
             system_states[system]['status'] = status
             system_states[system]['last_change'] = current_time
             
@@ -253,8 +263,9 @@ def check_systems(config, single_shot=False, verbose=False, update_status_page=F
                 logger.warning(f"ALERT: {system} ({host}) is DOWN")
                 all_systems_up = False
             else:
+                # System has recovered - send alert with down timestamp
                 message = f"System {system} has RECOVERED. Check type: {check_type}"
-                send_alert(system, alert_type, host, message)
+                send_alert(system, alert_type, host, message, down_timestamp=prev_timestamp)
                 # Also update status page if enabled
                 try:
                     if 'IPTIC_STATUS_PAGE' in os.environ:
