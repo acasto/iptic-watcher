@@ -182,11 +182,29 @@ def check_systems(config, single_shot=False, verbose=False, update_status_page=F
     current_time = time.time()
     all_systems_up = True
     
+    # Check if local connectivity check is configured
+    local_check_host = None
+    if 'general' in config and 'check_local_first' in config['general']:
+        local_check_host = config['general'].get('check_local_first')
+        if local_check_host and local_check_host.strip():
+            # Perform local connectivity check
+            logger.debug(f"Checking local connectivity to {local_check_host} before proceeding")
+            try:
+                from checkers.ping import check as ping_check
+                local_status = ping_check(local_check_host)
+                if not local_status:
+                    logger.warning(f"Local connectivity check to {local_check_host} failed. Skipping all system checks.")
+                    return False
+                logger.debug(f"Local connectivity check to {local_check_host} passed. Proceeding with system checks.")
+            except Exception as e:
+                logger.error(f"Error performing local connectivity check: {e}")
+                # Continue with checks anyway if local check raises an exception
+    
     logger.debug(f"Starting system checks, monitoring {len(config.sections())} systems")
     
     for system in config.sections():
         # Skip non-system sections
-        if system in ['logging', 'status_page']:
+        if system in ['logging', 'status_page', 'general']:
             continue
             
         # Get configuration for this system
